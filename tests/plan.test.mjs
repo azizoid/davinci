@@ -150,6 +150,23 @@ test("FCPXML uses host media paths and frame-accurate clips", () => {
   assert.match(xml, /frameDuration="1\/30s"/u);
 });
 
+test("FCPXML alternates stable talking-head compositions", () => {
+  const cropPlan = {
+    segments: [
+      { timeline_start_frame: 0, source_start_frame: 0, source_end_frame: 120 },
+      { timeline_start_frame: 120, source_start_frame: 120, source_end_frame: 240 },
+      { timeline_start_frame: 240, source_start_frame: 240, source_end_frame: 270 },
+      { timeline_start_frame: 270, source_start_frame: 270, source_end_frame: 390 },
+    ],
+  };
+  const xml = createFcpXml(cropPlan, probe, {
+    hostSourcePath: "/Users/test/projects/test/raw/source.mov",
+    projectName: "AI Edit - test",
+  });
+  assert.equal((xml.match(/<adjust-transform scale="1\.15 1\.15"/gu) || []).length, 2);
+  assert.match(xml, /offset="8\/1s" start="8\/1s" duration="1\/1s">\n        <adjust-transform scale="1\.15 1\.15"/u);
+});
+
 test("heuristic editorial provider preserves the source and delegates only safe cleanup", async () => {
   const observations = buildObservations(transcript, probe);
   const editorial = await createEditorialPlan(transcript, observations, probe, "heuristic");

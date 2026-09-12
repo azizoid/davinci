@@ -32,6 +32,21 @@ function xmlEscape(value) {
     .replaceAll("'", "&apos;");
 }
 
+function talkingHeadScale(segments, fps) {
+  const minimumDurationFrames = Math.ceil(fps * 3);
+  let punchIn = false;
+  let hasEstablishedComposition = false;
+
+  return segments.map((segment) => {
+    const duration = segment.source_end_frame - segment.source_start_frame;
+    if (duration >= minimumDurationFrames) {
+      if (hasEstablishedComposition) punchIn = !punchIn;
+      hasEstablishedComposition = true;
+    }
+    return punchIn ? "1.15 1.15" : null;
+  });
+}
+
 export function createFcpXml(editPlan, probe, options) {
   const rateExpression = probe.video.fps_expression;
   const rate = parseRate(rateExpression);
@@ -43,10 +58,15 @@ export function createFcpXml(editPlan, probe, options) {
   );
   const sourceName = basename(options.hostSourcePath);
   const sourceUrl = pathToFileURL(options.hostSourcePath).href;
+  const scales = talkingHeadScale(editPlan.segments, probe.video.fps);
   const clips = editPlan.segments
-    .map((segment) => {
+    .map((segment, index) => {
       const duration = segment.source_end_frame - segment.source_start_frame;
-      return `      <asset-clip name="${xmlEscape(sourceName)}" ref="r2" offset="${timeFromFrames(segment.timeline_start_frame, rateExpression)}" start="${timeFromFrames(segment.source_start_frame, rateExpression)}" duration="${timeFromFrames(duration, rateExpression)}" />`;
+      const attributes = `name="${xmlEscape(sourceName)}" ref="r2" offset="${timeFromFrames(segment.timeline_start_frame, rateExpression)}" start="${timeFromFrames(segment.source_start_frame, rateExpression)}" duration="${timeFromFrames(duration, rateExpression)}"`;
+      if (!scales[index]) return `      <asset-clip ${attributes} />`;
+      return `      <asset-clip ${attributes}>
+        <adjust-transform scale="${scales[index]}" />
+      </asset-clip>`;
     })
     .join("\n");
 
