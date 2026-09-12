@@ -7,6 +7,8 @@ __pycache__/
 # User media and generated project outputs.
 projects/*/raw/
 projects/*/assets/
+projects/*/project.json
+projects/*/resolve/
 projects/*/final.mp4
 projects/*/captions.srt
 projects/*/thumbnails/
