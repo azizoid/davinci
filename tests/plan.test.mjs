@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { buildEditPlan, buildObservations, buildSrt } from "../src/lib/plan.mjs";
 import { createFcpXml } from "../src/lib/fcpxml.mjs";
-import { createEditorialPlan } from "../src/lib/editor.mjs";
+import { buildEditorialView, createEditorialPlan } from "../src/lib/editor.mjs";
 
 const probe = {
   format: { duration_s: 8 },
@@ -107,6 +107,28 @@ test("filler removals expand to complete source frames", () => {
   });
   assert.equal(plan.editPlan.segments[0].source_end_frame, 12);
   assert.equal(plan.editPlan.segments[1].source_start_frame, 34);
+});
+
+test("editorial view groups complete phrases on silence boundaries", () => {
+  const phraseTranscript = {
+    schema_version: "1.0",
+    words: [
+      { id: "word-1", text: "So,", start_s: 0.1, end_s: 0.2, confidence: 0.99 },
+      { id: "word-2", text: "and", start_s: 0.3, end_s: 0.4, confidence: 0.99 },
+      { id: "word-3", text: "during", start_s: 0.5, end_s: 0.7, confidence: 0.99 },
+      { id: "word-4", text: "the", start_s: 0.71, end_s: 0.8, confidence: 0.99 },
+      { id: "word-5", text: "his-", start_s: 0.81, end_s: 0.9, confidence: 0.99 },
+      { id: "word-6", text: "th-", start_s: 0.91, end_s: 1, confidence: 0.99 },
+      { id: "word-7", text: "during", start_s: 1.01, end_s: 1.2, confidence: 0.99 },
+      { id: "word-8", text: "the", start_s: 1.21, end_s: 1.3, confidence: 0.99 },
+      { id: "word-9", text: "show.", start_s: 1.31, end_s: 1.5, confidence: 0.99 },
+      { id: "word-10", text: "Next.", start_s: 2.1, end_s: 2.3, confidence: 0.99 },
+    ],
+  };
+  const observations = buildObservations(phraseTranscript, probe);
+  const view = buildEditorialView(phraseTranscript, observations);
+  assert.equal(view.phrases.length, 2);
+  assert.match(view.phrases[0].text, /So, and during the his- th- during the show\./u);
 });
 
 test("FCPXML uses host media paths and frame-accurate clips", () => {

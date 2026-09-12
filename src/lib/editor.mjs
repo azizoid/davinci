@@ -15,6 +15,7 @@ Apply these priorities in order:
 8. Do not remove valuable material merely to make the result shorter.
 9. Keep intentional rhetorical repetition and meaningful conversational markers.
 10. Use review ranges only when uncertainty could materially change meaning.
+11. Select complete thought ranges, not merely phrases containing relevant words. When a source phrase contains a false start, a connector chain such as 'So, and...', or an unfinished word followed by a clean restart, begin at the clean restart and omit the abandoned prefix.
 
 This test has no B-roll, music, graphics, or generated speech. Select dialogue ranges only.
 
@@ -113,7 +114,6 @@ export function buildEditorialView(transcript, observations) {
     const previous = current.at(-1);
     if (previous && word.start_s - previous.end_s >= 0.5) flush();
     current.push(word);
-    if (current.length >= 32 || /[.!?]$/u.test(word.text.trim())) flush();
   }
   flush();
 
