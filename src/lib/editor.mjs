@@ -18,7 +18,7 @@ Apply these priorities in order:
 
 This test has no B-roll, music, graphics, or generated speech. Select dialogue ranges only.
 
-Return source ranges using the supplied millisecond timestamps. Ranges must be ordered, non-overlapping, and grounded in the supplied phrase IDs. Keep ranges are the complete source material for the final assembly. Remove ranges explain content omitted from the selected assembly. Do not create a range for a filler or pause that is already inside a larger kept range unless it is a meaningful content decision; the deterministic pass removes isolated 'uh'/'um'-type hesitation tokens and an immediately preceding search pause, plus clear repetitions, while preserving expressive 'ah'/'agh' vocalizations and natural cadence.`;
+Return source ranges using the supplied millisecond timestamps. Ranges must be ordered, non-overlapping, and grounded in the supplied phrase IDs. Keep ranges are the complete source material for the final assembly. Remove ranges explain content omitted from the selected assembly. Do not create a range for a filler or pause that is already inside a larger kept range unless it is a meaningful content decision; the deterministic pass removes isolated 'uh'/'um'-type hesitation tokens and all directly preceding pause, plus clear repetitions, while preserving expressive 'ah'/'agh' vocalizations and natural cadence.`;
 
 const EDITORIAL_SCHEMA = {
   type: "object",

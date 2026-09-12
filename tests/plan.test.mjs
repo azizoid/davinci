@@ -84,6 +84,31 @@ test("a removable uh also removes its preceding search pause", () => {
   assert.deepEqual(fillerDecision && { start_ms: fillerDecision.start_ms, end_ms: fillerDecision.end_ms }, { start_ms: 400, end_ms: 1200 });
 });
 
+test("filler removals expand to complete source frames", () => {
+  const frameProbe = {
+    format: { duration_s: 8 },
+    video: { fps: 30, fps_expression: "30/1" },
+    audio: { sample_rate: 48000 },
+  };
+  const frameTranscript = {
+    schema_version: "1.0",
+    words: [
+      { id: "word-1", text: "Before", start_s: 0.1, end_s: 0.41, confidence: 0.99 },
+      { id: "word-2", text: "uh", start_s: 1.01, end_s: 1.11, confidence: 0.99 },
+      { id: "word-3", text: "after", start_s: 1.2, end_s: 1.7, confidence: 0.99 },
+    ],
+  };
+  const observations = buildObservations(frameTranscript, frameProbe);
+  const plan = buildEditPlan(frameTranscript, observations, frameProbe, {
+    jobId: "job-frame-safe",
+    projectPath: "/workspace/projects/test",
+    sourcePath: "/workspace/projects/test/raw/source.mov",
+    projectName: "AI Edit - frame-safe",
+  });
+  assert.equal(plan.editPlan.segments[0].source_end_frame, 12);
+  assert.equal(plan.editPlan.segments[1].source_start_frame, 34);
+});
+
 test("FCPXML uses host media paths and frame-accurate clips", () => {
   const observations = buildObservations(transcript, probe);
   const plan = buildEditPlan(transcript, observations, probe, {

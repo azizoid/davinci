@@ -13,11 +13,18 @@ function coordinates(startMs, endMs, probe) {
   return {
     start_ms: startMs,
     end_ms: endMs,
-    start_frame: Math.max(0, Math.floor((startMs / 1000) * fps)),
-    end_frame: Math.max(1, Math.ceil((endMs / 1000) * fps)),
+    start_frame: Math.max(0, Math.floor((startMs / 1000) * fps + 1e-7)),
+    end_frame: Math.max(1, Math.ceil((endMs / 1000) * fps - 1e-7)),
     start_sample: Math.max(0, Math.floor((startMs / 1000) * sampleRate)),
     end_sample: Math.max(1, Math.ceil((endMs / 1000) * sampleRate)),
   };
+}
+
+function frameAlignIntervals(intervals, fps) {
+  return intervals.map((interval) => ({
+    start_ms: (Math.floor((interval.start_ms / 1000) * fps + 1e-7) * 1000) / fps,
+    end_ms: (Math.ceil((interval.end_ms / 1000) * fps - 1e-7) * 1000) / fps,
+  }));
 }
 
 export function buildObservations(transcript, probe) {
@@ -135,9 +142,17 @@ function buildRemovalDecisions(observations, durationMs) {
     if (type === "filler") {
       const normalized = cleanWord(observation.text || "");
       if (!CUTTABLE_FILLERS.has(normalized)) continue;
-      const previous = observations[index - 1];
-      const startsAfterPause = previous?.types.includes("silence") && previous.end_ms === observation.start_ms;
-      const startMs = startsAfterPause ? previous.start_ms : observation.start_ms;
+      const previousSpeech = observations
+        .slice(0, index)
+        .reverse()
+        .find((candidate) => candidate.types.includes("speech"));
+      const pauseStart = previousSpeech?.end_ms ?? observation.start_ms;
+      const startsAfterPause = pauseStart < observation.start_ms;
+      const startMs = startsAfterPause ? pauseStart : observation.start_ms;
+      const pauseObservationIds = observations
+        .slice(0, index)
+        .filter((candidate) => candidate.types.includes("silence") && candidate.start_ms >= pauseStart && candidate.end_ms <= observation.start_ms)
+        .map((candidate) => candidate.id);
       decisions.push({
         id: `decision-${String(decisions.length + 1).padStart(6, "0")}`,
         source_id: "source-001",
@@ -149,7 +164,7 @@ function buildRemovalDecisions(observations, durationMs) {
           ? "Remove a requested hesitation token and its preceding search pause without changing the sentence meaning."
           : "Remove a requested non-semantic hesitation token without changing the sentence meaning.",
         confidence: observation.confidence ?? 0.8,
-        observation_ids: startsAfterPause ? [previous.id, observation.id] : [observation.id],
+        observation_ids: startsAfterPause ? [...pauseObservationIds, observation.id] : [observation.id],
       });
       intervals.push({ start_ms: startMs, end_ms: observation.end_ms });
       continue;
@@ -196,8 +211,9 @@ function buildRemovalDecisions(observations, durationMs) {
 export function buildEditPlan(transcript, observations, probe, identifiers, editorialPlan = null) {
   const durationMs = Math.ceil(probe.format.duration_s * 1000);
   const heuristic = buildRemovalDecisions(observations.observations, durationMs);
+  const frameSafeHeuristicIntervals = frameAlignIntervals(heuristic.intervals, probe.video.fps);
   let decisions = heuristic.decisions;
-  let intervals = heuristic.intervals;
+  let intervals = frameSafeHeuristicIntervals;
   let sourceRanges;
   let editorialMetadata = null;
 
@@ -207,6 +223,7 @@ export function buildEditPlan(transcript, observations, probe, identifiers, edit
     }
     const keepRanges = mergeIntervals(editorialPlan.keep_ranges);
     const explicitRemovals = editorialPlan.remove_ranges || [];
+    const frameSafeExplicitRemovals = frameAlignIntervals(explicitRemovals, probe.video.fps);
     const omittedRanges = complementIntervals(keepRanges, durationMs);
     const omittedDecisions = omittedRanges.map((range, index) => ({
       id: `decision-editorial-omission-${String(index + 1).padStart(6, "0")}`,
@@ -232,10 +249,10 @@ export function buildEditPlan(transcript, observations, probe, identifiers, edit
     decisions = [...omittedDecisions, ...explicitDecisions, ...safeDecisions];
     intervals = mergeIntervals([
       ...omittedRanges,
-      ...explicitRemovals,
-      ...heuristic.intervals,
+      ...frameSafeExplicitRemovals,
+      ...frameSafeHeuristicIntervals,
     ]);
-    sourceRanges = subtractIntervals(keepRanges, [...explicitRemovals, ...heuristic.intervals]);
+    sourceRanges = subtractIntervals(keepRanges, [...frameSafeExplicitRemovals, ...frameSafeHeuristicIntervals]);
     editorialMetadata = {
       summary: editorialPlan.summary,
       warnings: editorialPlan.warnings,
@@ -337,12 +354,18 @@ export function buildEditPlan(transcript, observations, probe, identifiers, edit
   };
 }
 
-function sourceToTimelineMs(ms, segments, probe) {
+function sourceToTimelineMs(ms, segments, probe, boundary = "start") {
   const fps = probe.video.fps;
-  const sourceFrame = Math.floor((ms / 1000) * fps);
+  const sourceFrame = boundary === "end"
+    ? Math.ceil((ms / 1000) * fps - 1e-7)
+    : Math.floor((ms / 1000) * fps + 1e-7);
   const segment = segments.find(
     (candidate) => sourceFrame >= candidate.source_start_frame && sourceFrame < candidate.source_end_frame,
   );
+  if (!segment && boundary === "end") {
+    const previous = segments.find((candidate) => candidate.source_end_frame === sourceFrame);
+    if (previous) return ((previous.timeline_start_frame + previous.source_end_frame - previous.source_start_frame) / fps) * 1000;
+  }
   if (!segment) return null;
   const timelineFrame = segment.timeline_start_frame + (sourceFrame - segment.source_start_frame);
   return (timelineFrame / fps) * 1000;
@@ -363,7 +386,7 @@ export function buildSrt(transcript, editPlan, probe) {
 
   for (const word of transcript.words) {
     const start = sourceToTimelineMs(word.start_s * 1000, editPlan.segments, probe);
-    const end = sourceToTimelineMs(word.end_s * 1000, editPlan.segments, probe);
+    const end = sourceToTimelineMs(word.end_s * 1000, editPlan.segments, probe, "end");
     if (start === null || end === null) {
       flush();
       continue;
