@@ -1,0 +1,13 @@
+{
+  "language_code": "eng",
+  "text": "Today um we are testing the editor",
+  "words": [
+    {"type": "word", "text": "Today", "start": 0.1, "end": 0.5, "logprob": -0.01},
+    {"type": "word", "text": "um", "start": 0.6, "end": 0.8, "logprob": -0.01},
+    {"type": "word", "text": "we", "start": 0.9, "end": 1.1, "logprob": -0.01},
+    {"type": "word", "text": "are", "start": 1.2, "end": 1.4, "logprob": -0.01},
+    {"type": "word", "text": "testing", "start": 2.8, "end": 3.2, "logprob": -0.01},
+    {"type": "word", "text": "the", "start": 3.3, "end": 3.5, "logprob": -0.01},
+    {"type": "word", "text": "editor", "start": 3.6, "end": 4.1, "logprob": -0.01}
+  ]
+}

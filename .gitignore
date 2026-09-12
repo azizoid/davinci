@@ -1,0 +1,21 @@
+.env
+.DS_Store
+node_modules/
+__pycache__/
+*.pyc
+
+# User media and generated project outputs.
+projects/*/raw/
+projects/*/assets/
+projects/*/final.mp4
+projects/*/captions.srt
+projects/*/thumbnails/
+projects/*/shorts/
+projects/*/social/
+projects/*/.work/
+
+# Runtime workspaces and results from the initial layout.
+work/inbox/*
+!work/inbox/README.md
+work/jobs/*/
+results/*/

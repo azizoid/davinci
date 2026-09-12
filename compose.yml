@@ -1,0 +1,16 @@
+services:
+  editor:
+    build:
+      context: .
+    working_dir: /workspace
+    environment:
+      PROJECT_ROOT: /workspace
+      TRANSCRIBER: ${TRANSCRIBER:-elevenlabs}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      LANGUAGE_CODE: ${LANGUAGE_CODE:-}
+      WORKSPACE_RIGHTS_ATTESTED: ${WORKSPACE_RIGHTS_ATTESTED:-false}
+      RESOLVE_BRIDGE_URL: ${RESOLVE_BRIDGE_URL:-http://host.docker.internal:8787}
+    volumes:
+      - .:/workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

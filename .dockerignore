@@ -1,0 +1,9 @@
+.git
+.env
+.DS_Store
+projects/*/raw
+projects/*/assets
+projects/*/.work
+work/jobs
+results
+node_modules

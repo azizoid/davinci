@@ -1,0 +1,13 @@
+{
+  "name": "davinchi-edit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "edit": "node src/cli.mjs edit",
+    "test": "node --test"
+  }
+}
