@@ -7,8 +7,13 @@ services:
       PROJECT_ROOT: /workspace
       TRANSCRIBER: ${TRANSCRIBER:-elevenlabs}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       LANGUAGE_CODE: ${LANGUAGE_CODE:-}
+      EDITOR_PROVIDER: ${EDITOR_PROVIDER:-openai}
+      EDITOR_MODEL: ${EDITOR_MODEL:-gpt-5.6}
       WORKSPACE_RIGHTS_ATTESTED: ${WORKSPACE_RIGHTS_ATTESTED:-false}
+      HOST_PROJECT_ROOT: ${HOST_PROJECT_ROOT:-/Users/azizoid/apps/davinchi-edit}
+      RESOLVE_MODE: ${RESOLVE_MODE:-fcpxml}
       RESOLVE_BRIDGE_URL: ${RESOLVE_BRIDGE_URL:-http://host.docker.internal:8787}
     volumes:
       - .:/workspace

@@ -20,12 +20,13 @@ The current implementation performs:
 1. Source copy and media probing in Docker.
 2. Analysis-audio extraction with FFmpeg in Docker.
 3. ElevenLabs Scribe v2 transcription.
-4. Safe filler, immediate repetition, and long dead-air planning.
-5. A frame-aware Resolve operation plan.
-6. Native Resolve project/timeline creation and rendering through the host bridge.
-7. Captions and private execution artifacts.
+4. Compact transcript and observation view for the editorial planner.
+5. Structured content selection for hook, context, main points, redundancy, tangents, and conclusion.
+6. Safe filler, repetition, and pause cleanup within selected content.
+7. A frame-aware Resolve operation plan and FCPXML timeline file.
+8. Captions and private execution artifacts.
 
-The first run uses a deterministic planner. A separate editorial model will be added after the Resolve path is verified.
+The editorial planner uses a hosted text model. Only transcript text, timestamps, and observations are sent to it; the raw video stays local.
 
 ## Run The Test
 
@@ -34,9 +35,10 @@ This is a manual test run of the current CLI slice. The control panel and one-bu
 ### Prerequisites
 
 - macOS with DaVinci Resolve installed
-- Resolve edition with external scripting available
+- Regular DaVinci Resolve with FCPXML timeline import
 - Docker Desktop running
 - An ElevenLabs API key with Speech to Text access
+- An OpenAI API key with Responses API access for editorial planning
 - One raw video with an audio track
 - Permission to process the recording
 
@@ -52,6 +54,7 @@ Edit `.env`. You must set the API key and confirm the workspace rights attestati
 
 ```env
 ELEVENLABS_API_KEY=your_elevenlabs_key
+OPENAI_API_KEY=your_openai_key
 WORKSPACE_RIGHTS_ATTESTED=true
 ```
 
@@ -60,6 +63,8 @@ These values already have defaults and normally do not need to be changed:
 ```env
 TRANSCRIBER=elevenlabs
 LANGUAGE_CODE=
+EDITOR_PROVIDER=openai
+EDITOR_MODEL=gpt-5.6
 RESOLVE_BRIDGE_URL=http://host.docker.internal:8787
 ```
 
@@ -75,31 +80,9 @@ work/inbox/<your-video>.mov
 
 The source is copied unchanged into `projects/<video-slug>/raw/` before processing.
 
-### Configure Resolve
+### Run The Free-Compatible Pipeline
 
-1. Open DaVinci Resolve and leave it running.
-2. Open Resolve preferences.
-3. Go to **System > General > External scripting**.
-4. Set external scripting to **Local**.
-5. Leave Resolve at the Project Manager or an otherwise idle project state.
-
-Start the native bridge from a second terminal. Keep this terminal running:
-
-```sh
-HOST_PROJECT_ROOT="$PWD" \
-  "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Applications/ResolvePython" \
-  host/resolve_bridge.py
-```
-
-Check the bridge from a third terminal:
-
-```sh
-curl http://127.0.0.1:8787/health
-```
-
-It should return JSON with `"ok": true` and the Resolve version. If it returns `connected=false` or HTTP 503, Resolve is not running or external scripting is not enabled.
-
-### Build And Run
+The default `RESOLVE_MODE=fcpxml` does not require external scripting, Resolve Studio, or a host bridge. It creates a timeline file that regular Resolve can import.
 
 From the repository root:
 
@@ -108,13 +91,37 @@ docker compose build
 docker compose run --rm editor edit
 ```
 
-To select a specific source when more than one video is present:
+The command prints the exact FCPXML path. Open Resolve and import that file with **File > Import Timeline > FCPXML**. Resolve will create the edited timeline from the generated source ranges. You can then inspect and render it in the normal Resolve UI.
+
+For a specific source:
 
 ```sh
 docker compose run --rm editor edit --source /workspace/work/inbox/your-video.mov
 ```
 
-The current profile performs no B-roll, music, graphics, or external media selection. It transcribes the source, plans safe filler/repetition/dead-air removals, creates a dedicated Resolve project and timeline, renders, and exports the project.
+The result is written to `projects/<video-slug>/resolve/timeline.fcpxml`.
+
+### Optional Studio Bridge
+
+The native bridge remains available as an optional `RESOLVE_MODE=bridge` path for a Resolve installation with external scripting. It is not required for regular Resolve and is not used by the default test.
+
+Open Resolve, enable **System > General > External scripting > Local**, and leave Resolve running. Start the bridge:
+
+```sh
+HOST_PROJECT_ROOT="$PWD" \
+  "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Applications/ResolvePython" \
+  host/resolve_bridge.py
+```
+
+Then run:
+
+```sh
+docker compose run --rm -e RESOLVE_MODE=bridge editor edit
+```
+
+The current profile performs no B-roll, music, graphics, or external media selection. It selects the strongest coherent dialogue content, applies safe cleanup, and exports a timeline for Resolve to import.
+
+Common hesitation tokens such as `uh`, `um`, `erm`, and `hmm` are removed automatically, along with an immediately preceding search pause. Expressive vocalizations such as `ah` and `agh` are preserved so they do not become accidental jump cuts. The current Free Resolve profile also removes clear repetitions and long pauses.
 
 ### Outputs
 
@@ -126,9 +133,10 @@ projects/your-video/
 |-- final.mp4
 |-- captions.srt
 |-- project.json
+|-- resolve/timeline.fcpxml
 `-- .work/<job-id>/
-    |-- analysis/
-    |-- plan/
+    |-- analysis/editorial-view.md
+    |-- plan/editorial-plan.json
     `-- resolve/
 ```
 
@@ -142,6 +150,7 @@ To test probing, audio extraction, artifact generation, and planning without Ele
 docker compose run --rm \
   -e WORKSPACE_RIGHTS_ATTESTED=true \
   -e TRANSCRIBER=mock \
+  -e EDITOR_PROVIDER=heuristic \
   editor edit \
   --source /workspace/work/inbox/your-video.mov \
   --dry-run \
@@ -152,12 +161,13 @@ The dry run does not create a Resolve project or render a video.
 
 ### Troubleshooting
 
-- `ELEVENLABS_API_KEY is required`: check `.env` and rebuild or rerun Compose from the repository root.
+- `ELEVENLABS_API_KEY is required`: check `.env` and rerun Compose from the repository root.
+- `OPENAI_API_KEY is required`: add the editorial-model key to `.env`; the normal run cannot apply content-selection rules without it.
 - `No supported video found`: place one `.mp4`, `.mov`, `.m4v`, `.mkv`, or `.avi` file in `work/inbox/`.
 - `More than one video`: use `--source` with the container path `/workspace/work/inbox/<file>`.
-- `Could not connect to DaVinci Resolve`: open Resolve, enable Local external scripting, and restart the bridge.
-- `Resolve edition has no external scripting setting`: the installed edition cannot run this native bridge; use an edition that exposes Resolve external scripting.
-- The first implementation uses a direct native Resolve scripting bridge. MCP transport will replace or wrap this adapter after the initial Resolve test is validated.
+- `Could not connect to DaVinci Resolve`: this only applies to `RESOLVE_MODE=bridge`; use the default `fcpxml` mode with regular Resolve.
+- `FCPXML import cannot find media`: confirm the project was run with the repository at `/Users/azizoid/apps/davinchi-edit`, or set `HOST_PROJECT_ROOT` to the repository's absolute macOS path before running Docker.
+- The default path uses a Free-compatible FCPXML handoff. The direct native Resolve bridge is optional and remains a separate integration path.
 
 ## Directories
 

@@ -1,6 +1,7 @@
 import { parseRational } from "./runtime.mjs";
 
-const FILLERS = new Set(["um", "uh", "uhm", "hmm", "hm", "er", "erm", "ah"]);
+const FILLERS = new Set(["um", "uh", "uhm", "hmm", "hm", "er", "erm", "ah", "agh"]);
+const CUTTABLE_FILLERS = new Set(["um", "uh", "uhm", "hmm", "hm", "er", "erm"]);
 
 function cleanWord(text) {
   return text.toLowerCase().replaceAll(/^[^\p{Letter}\p{Number}]+|[^\p{Letter}\p{Number}]+$/gu, "");
@@ -97,23 +98,72 @@ function mergeIntervals(intervals) {
   return merged;
 }
 
+function subtractIntervals(baseIntervals, removalIntervals) {
+  const removals = mergeIntervals(removalIntervals);
+  const result = [];
+  for (const base of baseIntervals) {
+    let cursor = base.start_ms;
+    for (const removal of removals) {
+      if (removal.end_ms <= cursor || removal.start_ms >= base.end_ms) continue;
+      const start = Math.max(cursor, base.start_ms);
+      const end = Math.min(removal.start_ms, base.end_ms);
+      if (end > start) result.push({ start_ms: start, end_ms: end });
+      cursor = Math.max(cursor, removal.end_ms);
+      if (cursor >= base.end_ms) break;
+    }
+    if (cursor < base.end_ms) result.push({ start_ms: cursor, end_ms: base.end_ms });
+  }
+  return result;
+}
+
+function complementIntervals(keptIntervals, durationMs) {
+  const result = [];
+  let cursor = 0;
+  for (const kept of mergeIntervals(keptIntervals)) {
+    if (kept.start_ms > cursor) result.push({ start_ms: cursor, end_ms: kept.start_ms });
+    cursor = Math.max(cursor, kept.end_ms);
+  }
+  if (cursor < durationMs) result.push({ start_ms: cursor, end_ms: durationMs });
+  return result;
+}
+
 function buildRemovalDecisions(observations, durationMs) {
   const decisions = [];
   const intervals = [];
-  for (const observation of observations) {
+  for (const [index, observation] of observations.entries()) {
     const [type] = observation.types.filter((value) => value !== "speech");
-    if (type === "filler" || type === "repetition") {
+    if (type === "filler") {
+      const normalized = cleanWord(observation.text || "");
+      if (!CUTTABLE_FILLERS.has(normalized)) continue;
+      const previous = observations[index - 1];
+      const startsAfterPause = previous?.types.includes("silence") && previous.end_ms === observation.start_ms;
+      const startMs = startsAfterPause ? previous.start_ms : observation.start_ms;
+      decisions.push({
+        id: `decision-${String(decisions.length + 1).padStart(6, "0")}`,
+        source_id: "source-001",
+        start_ms: startMs,
+        end_ms: observation.end_ms,
+        action: "remove",
+        reason_code: "non_semantic_filler",
+        reason: startsAfterPause
+          ? "Remove a requested hesitation token and its preceding search pause without changing the sentence meaning."
+          : "Remove a requested non-semantic hesitation token without changing the sentence meaning.",
+        confidence: observation.confidence ?? 0.8,
+        observation_ids: startsAfterPause ? [previous.id, observation.id] : [observation.id],
+      });
+      intervals.push({ start_ms: startMs, end_ms: observation.end_ms });
+      continue;
+    }
+
+    if (type === "repetition") {
       decisions.push({
         id: `decision-${String(decisions.length + 1).padStart(6, "0")}`,
         source_id: "source-001",
         start_ms: observation.start_ms,
         end_ms: observation.end_ms,
         action: "remove",
-        reason_code: type === "filler" ? "non_semantic_filler" : "accidental_repetition",
-        reason:
-          type === "filler"
-            ? "Remove an isolated hesitation without changing the sentence meaning."
-            : "Remove an immediately repeated word when the repetition is not semantic.",
+        reason_code: "accidental_repetition",
+        reason: "Remove an immediately repeated word when the repetition is not semantic.",
         confidence: observation.confidence ?? 0.8,
         observation_ids: [observation.id],
       });
@@ -143,16 +193,58 @@ function buildRemovalDecisions(observations, durationMs) {
   return { decisions, intervals: mergeIntervals(intervals), durationMs };
 }
 
-export function buildEditPlan(transcript, observations, probe, identifiers) {
+export function buildEditPlan(transcript, observations, probe, identifiers, editorialPlan = null) {
   const durationMs = Math.ceil(probe.format.duration_s * 1000);
-  const { decisions, intervals } = buildRemovalDecisions(observations.observations, durationMs);
-  const sourceRanges = [];
-  let cursor = 0;
-  for (const interval of intervals) {
-    if (interval.start_ms > cursor) sourceRanges.push({ start_ms: cursor, end_ms: interval.start_ms });
-    cursor = Math.max(cursor, interval.end_ms);
+  const heuristic = buildRemovalDecisions(observations.observations, durationMs);
+  let decisions = heuristic.decisions;
+  let intervals = heuristic.intervals;
+  let sourceRanges;
+  let editorialMetadata = null;
+
+  if (editorialPlan) {
+    if (editorialPlan.review_ranges?.length) {
+      throw new Error("Editorial planner returned review ranges that could change meaning; no publishable timeline was created.");
+    }
+    const keepRanges = mergeIntervals(editorialPlan.keep_ranges);
+    const explicitRemovals = editorialPlan.remove_ranges || [];
+    const omittedRanges = complementIntervals(keepRanges, durationMs);
+    const omittedDecisions = omittedRanges.map((range, index) => ({
+      id: `decision-editorial-omission-${String(index + 1).padStart(6, "0")}`,
+      source_id: "source-001",
+      ...range,
+      action: "remove",
+      reason_code: "editorial_not_selected",
+      reason: "Omit a source range that does not advance the strongest coherent narrative.",
+      confidence: 0.8,
+      observation_ids: [],
+    }));
+    const explicitDecisions = explicitRemovals.map((range, index) => ({
+      id: `decision-editorial-remove-${String(index + 1).padStart(6, "0")}`,
+      source_id: "source-001",
+      ...range,
+      action: "remove",
+      reason_code: "editorial_content_cleanup",
+      observation_ids: range.phrase_ids || [],
+    }));
+    const safeDecisions = heuristic.decisions.filter((decision) =>
+      keepRanges.some((range) => decision.start_ms < range.end_ms && decision.end_ms > range.start_ms),
+    );
+    decisions = [...omittedDecisions, ...explicitDecisions, ...safeDecisions];
+    intervals = mergeIntervals([
+      ...omittedRanges,
+      ...explicitRemovals,
+      ...heuristic.intervals,
+    ]);
+    sourceRanges = subtractIntervals(keepRanges, [...explicitRemovals, ...heuristic.intervals]);
+    editorialMetadata = {
+      summary: editorialPlan.summary,
+      warnings: editorialPlan.warnings,
+      provider: editorialPlan.provider,
+      model: editorialPlan.model,
+    };
+  } else {
+    sourceRanges = complementIntervals(intervals, durationMs);
   }
-  if (cursor < durationMs) sourceRanges.push({ start_ms: cursor, end_ms: durationMs });
 
   const segments = sourceRanges
     .map((range, index) => {
@@ -199,6 +291,7 @@ export function buildEditPlan(transcript, observations, probe, identifiers) {
       decision_pass_id: identifiers.jobId,
       profile: "no-broll-v1",
       decisions: decisionsWithKeep,
+      editorial: editorialMetadata,
     },
     editPlan: {
       schema_version: "1.0",
@@ -217,6 +310,7 @@ export function buildEditPlan(transcript, observations, probe, identifiers) {
         source_path: sourcePath,
         output_path: outputPath,
         project_export_path: projectExportPath,
+        fcpxml_path: identifiers.fcpxmlPath,
       },
       operations: [
         { id: "op-create-project", type: "create_project" },
@@ -232,6 +326,7 @@ export function buildEditPlan(transcript, observations, probe, identifiers) {
         })),
         { id: "op-render", type: "render", output_path: outputPath },
         { id: "op-export-project", type: "export_project", output_path: projectExportPath },
+        { id: "op-export-fcpxml", type: "export_fcpxml", output_path: identifiers.fcpxmlPath },
       ],
       preconditions: ["Resolve is running", "external scripting is enabled", "source media is readable"],
       expected_postconditions: ["dedicated project exists", "timeline matches edit plan", "render is decodable"],

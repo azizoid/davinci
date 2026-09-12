@@ -7,6 +7,8 @@ import { extractAnalysisAudio, probeMedia } from "./lib/probe.mjs";
 import { buildEditPlan, buildObservations, buildSrt } from "./lib/plan.mjs";
 import { executeResolve } from "./lib/resolve-client.mjs";
 import { normalizeTranscript, transcribeAudio } from "./lib/transcribe.mjs";
+import { createFcpXml } from "./lib/fcpxml.mjs";
+import { createEditorialPlan } from "./lib/editor.mjs";
 
 const PROJECT_ROOT = process.env.PROJECT_ROOT || resolve(fileURLToPath(new URL("..", import.meta.url)));
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".mkv", ".avi"]);
@@ -29,6 +31,7 @@ function parseArgs(args) {
     else if (argument === "--transcriber") options.transcriber = args[++index];
     else if (argument === "--mock-transcript") options.mockTranscript = args[++index];
     else if (argument === "--resolve") options.resolve = args[++index];
+    else if (argument === "--resolve-mode") options.resolveMode = args[++index];
     else throw new Error(`Unknown option '${argument}'.`);
   }
   return options;
@@ -52,12 +55,15 @@ async function runEdit(args) {
   const analysisPath = join(jobPath, "analysis");
   const planPath = join(jobPath, "plan");
   const resolvePath = join(jobPath, "resolve");
+  const visibleResolvePath = join(projectPath, "resolve");
+  const resolveMode = options.resolveMode || process.env.RESOLVE_MODE || "fcpxml";
   await Promise.all([
     ensureDir(join(projectPath, "raw")),
     ensureDir(join(projectPath, "assets")),
     ensureDir(join(projectPath, "thumbnails")),
     ensureDir(join(projectPath, "shorts")),
     ensureDir(join(projectPath, "social")),
+    ensureDir(visibleResolvePath),
     ensureDir(analysisPath),
     ensureDir(planPath),
     ensureDir(resolvePath),
@@ -110,23 +116,47 @@ async function runEdit(args) {
   const observations = buildObservations(transcript, probe);
   await writeJson(join(analysisPath, "observations.json"), observations);
   await advance("analyzed");
+  console.log(`[${jobId}] selecting the strongest coherent content`);
+  const editorialProvider = options.dryRun && !process.env.OPENAI_API_KEY ? "heuristic" : undefined;
+  const editorialPlan = await createEditorialPlan(transcript, observations, probe, editorialProvider);
+  await writeFile(join(analysisPath, "editorial-view.md"), editorialPlan.phrases
+    .map((phrase) => `${phrase.id} [${phrase.start_ms}-${phrase.end_ms}] ${phrase.text}`)
+    .join("\n") + "\n", "utf8");
+  await writeJson(join(planPath, "editorial-plan.json"), editorialPlan);
   const identifiers = {
     jobId,
     projectPath: `/workspace/projects/${projectSlug}`,
     sourcePath: `/workspace/projects/${projectSlug}/raw/${sourceName}`,
+    fcpxmlPath: `/workspace/projects/${projectSlug}/resolve/timeline.fcpxml`,
     projectName,
   };
-  const plan = buildEditPlan(transcript, observations, probe, identifiers);
+  const plan = buildEditPlan(transcript, observations, probe, identifiers, editorialPlan);
   await writeJson(join(planPath, "edit-decision-list.json"), plan.decisionList);
   await writeJson(join(planPath, "edit-plan.json"), plan.editPlan);
   await writeJson(join(planPath, "resolve-operation-plan.json"), plan.operationPlan);
   await writeFile(join(projectPath, "captions.srt"), buildSrt(transcript, plan.editPlan, probe), "utf8");
+  const hostProjectRoot = process.env.HOST_PROJECT_ROOT;
+  if (!hostProjectRoot) {
+    throw new Error("HOST_PROJECT_ROOT is required to create a Resolve-importable FCPXML file.");
+  }
+  const hostSourcePath = join(hostProjectRoot, "projects", projectSlug, "raw", sourceName);
+  const hostFcpXmlPath = join(hostProjectRoot, "projects", projectSlug, "resolve", "timeline.fcpxml");
+  await writeFile(
+    join(visibleResolvePath, "timeline.fcpxml"),
+    createFcpXml(plan.editPlan, probe, { hostSourcePath, projectName }),
+    "utf8",
+  );
   await advance("planned");
 
   console.log(`[${jobId}] planned ${plan.editPlan.segments.length} kept segments and ${plan.decisionList.decisions.length - 1} removals`);
-  if (options.dryRun) {
-    console.log(`[${jobId}] dry run complete: ${jobPath}`);
+  if (options.dryRun || resolveMode === "fcpxml") {
+    console.log(`[${jobId}] Resolve timeline handoff: ${hostFcpXmlPath}`);
+    if (options.dryRun) console.log(`[${jobId}] dry run complete: ${jobPath}`);
+    else console.log(`[${jobId}] Free Resolve handoff ready; import the FCPXML in Resolve to create the timeline.`);
     return;
+  }
+  if (resolveMode !== "bridge") {
+    throw new Error(`Unsupported resolve mode '${resolveMode}'. Use 'fcpxml' or 'bridge'.`);
   }
 
   const bridgeUrl = options.resolve || process.env.RESOLVE_BRIDGE_URL;
@@ -166,7 +196,7 @@ async function copySource(source, projectPath, sourceHash) {
 }
 
 function printHelp() {
-  console.log(`Usage:\n  node src/cli.mjs edit [--source /workspace/work/inbox/video.mov] [--dry-run]\n\nThe first profile removes safe fillers, immediate repetitions, and long dead-air sections. It does not add B-roll, music, or graphics.`);
+  console.log(`Usage:\n  node src/cli.mjs edit [--source /workspace/work/inbox/video.mov] [--dry-run]\n\nThe default profile selects coherent content, removes safe dialogue defects, and does not add B-roll, music, or graphics.`);
 }
 
 main().catch((error) => {

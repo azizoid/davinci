@@ -176,3 +176,24 @@ This file records decisions that constrain future implementation. New decisions 
 - **Decision:** The initial stock-media license check assumes personal/noncommercial distribution. Commercial or client distribution requires an explicit delivery context and a separate compatibility check.
 - **Rationale:** License compatibility depends on intended distribution, and the initial profile should not silently claim commercial clearance.
 - **Consequences:** Every job records its distribution context. External assets are rejected when their terms cannot be verified for that context.
+
+## ID-026: Free Resolve Interchange Fallback
+
+- **Status:** Accepted
+- **Decision:** When external Resolve scripting is unavailable, the first test exports a frame-accurate FCPXML timeline for import into regular DaVinci Resolve. The pipeline must not require Resolve Studio for source-grounded cutting.
+- **Rationale:** Timeline interchange is sufficient to validate the analysis and edit plan with the user's existing Resolve edition without requiring a paid control API.
+- **Consequences:** Free-mode execution ends at an importable timeline handoff; the user imports and renders it in Resolve. Automatic Resolve mutation and render monitoring remain available only through a separately configured host integration.
+
+## ID-027: Quality Over Fixed Duration
+
+- **Status:** Accepted
+- **Decision:** The editor must optimize for the strongest coherent and truthful result, not a fixed runtime or percentage reduction. Duration is an outcome of content selection.
+- **Rationale:** A shorter edit is not inherently better. Arbitrary duration targets encourage removal of context, useful evidence, or the speaker's intended progression.
+- **Consequences:** Editorial planning must score relevance, clarity, completeness, and continuity. The report may explain why a source remains relatively long.
+
+## ID-028: Distinguish Hesitations From Expressive Vocalizations
+
+- **Status:** Accepted
+- **Decision:** The default FCPXML profile removes discrete non-semantic hesitation tokens such as `uh`, `um`, `erm`, and `hmm`, including an immediately preceding search pause, while preserving expressive vocalizations such as `ah` and `agh`.
+- **Rationale:** The user wants common hesitations removed, but expressive vocalizations can carry delivery and should not become accidental content cuts.
+- **Consequences:** Token-level removal can still create visible jump cuts; future smoothing, room tone, or punch-in handling should reduce their visual impact without restoring the removed hesitation audio. A preceding pause is removed only when it is directly attached to a cuttable hesitation token.

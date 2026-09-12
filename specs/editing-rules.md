@@ -54,6 +54,19 @@ Rank candidate takes using:
 
 Do not build a sentence from many fragments merely to maximize brevity. If candidates express materially different claims, keep the contextually supported take or flag the ambiguity.
 
+## Content Selection And Structure
+
+- Identify the central question, claim, or story before selecting the final sequence.
+- Build a coherent progression such as hook, context, main point, supporting material, and conclusion when the source supports it.
+- Keep material that advances the topic, adds necessary context, supports a claim, or provides a meaningful emotional or rhetorical beat.
+- Remove tangents, redundant explanations, repeated setups, and low-value detours when their removal does not create a misleading transition.
+- Prefer the clearest complete expression of an idea over the first usable expression.
+- Use a strong source moment as a cold open when it improves engagement without removing necessary context from the main sequence.
+- Preserve a conclusion or call to action when it completes the speaker's purpose; remove only duplicate or weak endings.
+- Let final duration emerge from the strongest coherent content. Do not optimize for a fixed duration or percentage reduction.
+- Do not remove valuable material merely to make the final video shorter. A longer coherent edit is better than a compressed or misleading one.
+- If the source cannot be shortened safely, retain the material and report that the duration is content-driven.
+
 ## Pacing
 
 - Establish a cadence appropriate to the speaker and content before making fine cuts.

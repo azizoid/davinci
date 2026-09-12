@@ -5,6 +5,7 @@ Each processed source gets a project folder. The generated editor currently crea
 ```text
 projects/<video-slug>/
 |-- raw/                 # immutable source copy
+|-- resolve/             # visible Resolve import/export handoffs
 |-- final.mp4            # latest validated render
 |-- captions.srt
 |-- assets/              # future B-roll and supporting media
